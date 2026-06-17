@@ -48,32 +48,75 @@ function timingSafeStringEqual(a: string, b: string): boolean {
 }
 
 function summarizeHeaders(req: Request): Record<string, string> {
-  const interesting = [
+  const out: Record<string, string> = {};
+  const headers = req.headers as Record<string, string | string[] | undefined>;
+  const include = (name: string, raw: string | string[] | undefined): void => {
+    if (raw === undefined) return;
+    const v = Array.isArray(raw) ? raw.join(',') : raw;
+    if (name === 'authorization') {
+      out[name] = v.toLowerCase().startsWith('bearer ')
+        ? `Bearer <jwt:${v.length - 7}b>`
+        : `<${v.length}b>`;
+    } else if (name === X_MCP_AUTH_HEADER) {
+      out[name] = `<${v.length}b>`;
+    } else {
+      out[name] = v.length > 512 ? `${v.slice(0, 512)}…` : v;
+    }
+  };
+
+  const baseline = [
     'authorization',
     X_MCP_AUTH_HEADER,
     'user-agent',
     'x-forwarded-for',
-    'x-slack-signature',
-    'x-slack-request-timestamp',
-    'x-slack-team-id',
-    'x-slack-user-id',
-    'x-mcp-source',
+    'x-forwarded-host',
+    'x-forwarded-proto',
+    'host',
     'origin',
     'referer',
   ];
-  const out: Record<string, string> = {};
-  for (const name of interesting) {
-    const v = req.header(name);
-    if (v === undefined) continue;
-    if (name === 'authorization') {
-      out[name] = v.startsWith('Bearer ') ? `Bearer <jwt:${v.length - 7}b>` : `<${v.length}b>`;
-    } else if (name === X_MCP_AUTH_HEADER) {
-      out[name] = `<${v.length}b>`;
-    } else {
-      out[name] = v;
+  for (const name of baseline) include(name, headers[name]);
+
+  for (const [name, value] of Object.entries(headers)) {
+    if (name.startsWith('x-slack-') || name.startsWith('x-mcp-')) {
+      include(name, value);
     }
   }
   return out;
+}
+
+function summarizeBody(body: unknown): Record<string, unknown> | undefined {
+  if (body === null || typeof body !== 'object') return undefined;
+  const obj = body as Record<string, unknown>;
+  const summary: Record<string, unknown> = {};
+  const top = Object.keys(obj);
+  summary.topKeys = top;
+  if (typeof obj.jsonrpc === 'string') summary.jsonrpc = obj.jsonrpc;
+  if (typeof obj.method === 'string') summary.method = obj.method;
+  if (obj.id !== undefined) summary.id = obj.id;
+
+  const params = obj.params;
+  if (params !== null && typeof params === 'object') {
+    summary.paramsKeys = Object.keys(params as Record<string, unknown>);
+  }
+
+  const interestingPattern = /(team|enterprise|workspace|installation|host|url|origin|domain|tenant|slack|user|actor)/i;
+  const found: Record<string, unknown> = {};
+  const visit = (node: unknown, prefix: string, depth: number): void => {
+    if (depth > 6 || node === null || node === undefined) return;
+    if (typeof node !== 'object') return;
+    for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
+      const path = prefix ? `${prefix}.${k}` : k;
+      if (interestingPattern.test(k) && (typeof v === 'string' || typeof v === 'number')) {
+        const s = String(v);
+        found[path] = s.length > 256 ? `${s.slice(0, 256)}…` : s;
+      }
+      if (typeof v === 'object') visit(v, path, depth + 1);
+    }
+  };
+  visit(obj, '', 0);
+  if (Object.keys(found).length > 0) summary.interestingFields = found;
+  return summary;
 }
 
 function decodeJwtForSniff(token: string): Record<string, unknown> | null {
@@ -187,6 +230,7 @@ export function sharedSecretMiddleware(): RequestHandler {
           method: req.method,
           path: req.path,
           headers: summarizeHeaders(req),
+          body: summarizeBody(req.body),
           pathA: pathAResult,
           pathB: pathBResult,
           pathBError,

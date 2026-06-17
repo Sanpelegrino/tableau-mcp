@@ -8,6 +8,8 @@ function makeReq(headers: Record<string, string> = {}): Request {
   return {
     method: 'POST',
     path: '/tableau-mcp',
+    headers: lower,
+    body: undefined,
     header: (name: string) => lower[name.toLowerCase()],
   } as unknown as Request;
 }
