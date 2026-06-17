@@ -25,6 +25,7 @@ import { TableauAuthInfo } from './oauth/schemas.js';
 import { AuthenticatedRequest } from './oauth/types.js';
 import { passthroughAuthMiddleware, X_TABLEAU_AUTH_HEADER } from './passthroughAuthMiddleware.js';
 import { X_TABLEAU_MCP_CONFIG_HEADER } from './requestUtils.js';
+import { sharedSecretMiddleware, X_MCP_AUTH_HEADER } from './sharedSecretMiddleware.js';
 
 const SESSION_ID_HEADER = 'mcp-session-id';
 
@@ -58,12 +59,17 @@ export async function startExpressServer({
         'MCP-Protocol-Version',
         X_TABLEAU_AUTH_HEADER,
         X_TABLEAU_MCP_CONFIG_HEADER,
+        X_MCP_AUTH_HEADER,
       ],
       exposedHeaders: [SESSION_ID_HEADER, 'x-session-id'],
     }),
   );
 
-  const middleware: Array<RequestHandler> = [handlePingRequest];
+  app.get('/healthz', (_req, res) => {
+    res.status(200).json({ status: 'ok' });
+  });
+
+  const middleware: Array<RequestHandler> = [sharedSecretMiddleware(), handlePingRequest];
   if (config.enablePassthroughAuth) {
     middleware.push(passthroughAuthMiddleware());
   }
