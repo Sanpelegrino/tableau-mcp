@@ -174,7 +174,11 @@ export function registrationGate(deps: RegistrationGateDeps = {}): RequestHandle
       const message =
         `Unable to process request — this app is not registered with the MCP server. ` +
         `An administrator must register it at ${registerUrl} before requests will be accepted.`;
-      res.status(401).json({
+      // Return HTTP 200 with a JSON-RPC error envelope. Slack's MCP connector
+      // (and most MCP clients) swallow the body on non-2xx HTTP statuses and
+      // surface a generic "auth failed" message — wrapping the error in a 200
+      // lets the client render `error.message` to the user.
+      res.status(200).json({
         jsonrpc: '2.0',
         id: requestId,
         error: {

@@ -68,7 +68,7 @@ describe('registrationGate', () => {
     expect(countFn).not.toHaveBeenCalled();
   });
 
-  it('returns 401 JSON-RPC error with self-discovered registration URL when registry is empty', async () => {
+  it('returns 200 JSON-RPC error with self-discovered registration URL when registry is empty', async () => {
     const countFn = vi.fn().mockResolvedValue(0);
     const handler = registrationGate({ countFn });
 
@@ -78,7 +78,7 @@ describe('registrationGate', () => {
     await handler(makeReq(), res, next);
 
     expect(next).not.toHaveBeenCalled();
-    expect(status).toHaveBeenCalledWith(401);
+    expect(status).toHaveBeenCalledWith(200);
     const payload = json.mock.calls[0][0];
     expect(payload.jsonrpc).toBe('2.0');
     expect(payload.id).toBe(1);
