@@ -159,9 +159,32 @@ export function registrationGate(deps: RegistrationGateDeps = {}): RequestHandle
         next();
         return;
       }
+      const requestId =
+        req.body && typeof req.body === 'object' && 'id' in req.body
+          ? (req.body as { id?: unknown }).id ?? null
+          : null;
+      const proto =
+        (req.headers['x-forwarded-proto'] as string | undefined)?.split(',')[0]?.trim() ||
+        (req.secure ? 'https' : 'http');
+      const host =
+        (req.headers['x-forwarded-host'] as string | undefined)?.split(',')[0]?.trim() ||
+        req.headers.host ||
+        'this-mcp-server';
+      const registerUrl = `${proto}://${host}/register`;
+      const message =
+        `Unable to process request — this app is not registered with the MCP server. ` +
+        `An administrator must register it at ${registerUrl} before requests will be accepted.`;
       res.status(401).json({
-        error: 'unauthorized',
-        reason: 'this app is not registered with the MCP server',
+        jsonrpc: '2.0',
+        id: requestId,
+        error: {
+          code: -32001,
+          message,
+          data: {
+            reason: 'app_not_registered',
+            register_url: registerUrl,
+          },
+        },
       });
     } catch (err) {
       log({

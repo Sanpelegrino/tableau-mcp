@@ -2,11 +2,14 @@ import type { NextFunction, Request, Response } from 'express';
 
 import { registrationGate } from './registrationGate.js';
 
-function makeReq(method: string = 'POST'): Request {
+function makeReq(
+  method: string = 'POST',
+  headers: Record<string, string> = { host: 'mcp.example.com', 'x-forwarded-proto': 'https' },
+): Request {
   return {
     method,
     path: '/tableau-mcp',
-    headers: {},
+    headers,
     body: { jsonrpc: '2.0', method: 'tools/call', id: 1 },
   } as unknown as Request;
 }
@@ -65,7 +68,7 @@ describe('registrationGate', () => {
     expect(countFn).not.toHaveBeenCalled();
   });
 
-  it('returns 401 with the documented message when registry is empty', async () => {
+  it('returns 401 JSON-RPC error with self-discovered registration URL when registry is empty', async () => {
     const countFn = vi.fn().mockResolvedValue(0);
     const handler = registrationGate({ countFn });
 
@@ -76,9 +79,15 @@ describe('registrationGate', () => {
 
     expect(next).not.toHaveBeenCalled();
     expect(status).toHaveBeenCalledWith(401);
-    expect(json).toHaveBeenCalledWith({
-      error: 'unauthorized',
-      reason: 'this app is not registered with the MCP server',
+    const payload = json.mock.calls[0][0];
+    expect(payload.jsonrpc).toBe('2.0');
+    expect(payload.id).toBe(1);
+    expect(payload.error.code).toBe(-32001);
+    expect(payload.error.message).toContain('not registered');
+    expect(payload.error.message).toContain('https://mcp.example.com/register');
+    expect(payload.error.data).toEqual({
+      reason: 'app_not_registered',
+      register_url: 'https://mcp.example.com/register',
     });
   });
 
