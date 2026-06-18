@@ -153,6 +153,21 @@ export function registrationGate(deps: RegistrationGateDeps = {}): RequestHandle
       return;
     }
 
+    // Let the MCP handshake (initialize, notifications, tools/list, etc.) pass
+    // through unconditionally. If we bounce `initialize`, the client never
+    // completes connection and renders a generic "Failed to connect" message
+    // instead of our registration text. Only `tools/call` is gated — that's
+    // the only method that actually reaches Tableau and the only one whose
+    // response the client renders user-visible text from.
+    const rpcMethodPre =
+      req.body && typeof req.body === 'object' && 'method' in req.body
+        ? (req.body as { method?: unknown }).method
+        : undefined;
+    if (rpcMethodPre !== 'tools/call') {
+      next();
+      return;
+    }
+
     try {
       const count = await getCount();
       if (count > 0) {
@@ -175,38 +190,15 @@ export function registrationGate(deps: RegistrationGateDeps = {}): RequestHandle
         `Unable to process request — this app is not registered with the MCP server. ` +
         `An administrator must register it at ${registerUrl} before requests will be accepted.`;
       // MCP clients (incl. Slack's) render a generic "tool failed" message on
-      // JSON-RPC error envelopes. To get the registration URL into the user's
-      // chat we have to return a SUCCESS-shaped tools/call response with
-      // isError + content[] — that's the only path the client surfaces text
-      // from. Detect tools/call and return that shape; everything else falls
-      // back to the JSON-RPC error envelope.
-      const rpcMethod =
-        req.body && typeof req.body === 'object' && 'method' in req.body
-          ? (req.body as { method?: unknown }).method
-          : undefined;
-
-      if (rpcMethod === 'tools/call') {
-        res.status(200).json({
-          jsonrpc: '2.0',
-          id: requestId,
-          result: {
-            isError: true,
-            content: [{ type: 'text', text: message }],
-          },
-        });
-        return;
-      }
-
+      // JSON-RPC error envelopes. To get the registration URL into chat we
+      // return a SUCCESS-shaped tools/call response with isError + content[] —
+      // that's the only path the client surfaces text from.
       res.status(200).json({
         jsonrpc: '2.0',
         id: requestId,
-        error: {
-          code: -32001,
-          message,
-          data: {
-            reason: 'app_not_registered',
-            register_url: registerUrl,
-          },
+        result: {
+          isError: true,
+          content: [{ type: 'text', text: message }],
         },
       });
     } catch (err) {

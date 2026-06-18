@@ -89,12 +89,12 @@ describe('registrationGate', () => {
     expect(payload.error).toBeUndefined();
   });
 
-  it('returns JSON-RPC error envelope for non-tools/call methods', async () => {
+  it('passes through non-tools/call methods (initialize, tools/list) without consulting registry', async () => {
     const countFn = vi.fn().mockResolvedValue(0);
     const handler = registrationGate({ countFn });
 
     const next = vi.fn() as NextFunction;
-    const { res, status, json } = makeRes();
+    const { res, status } = makeRes();
 
     const req = {
       method: 'POST',
@@ -105,11 +105,9 @@ describe('registrationGate', () => {
 
     await handler(req, res, next);
 
-    expect(next).not.toHaveBeenCalled();
-    expect(status).toHaveBeenCalledWith(200);
-    const payload = json.mock.calls[0][0];
-    expect(payload.error.code).toBe(-32001);
-    expect(payload.error.data.register_url).toBe('https://mcp.example.com/register');
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(status).not.toHaveBeenCalled();
+    expect(countFn).not.toHaveBeenCalled();
   });
 
   it('calls next() when registry is non-empty', async () => {
