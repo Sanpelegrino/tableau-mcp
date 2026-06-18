@@ -85,13 +85,14 @@ describe('registration/repo', () => {
       expect(calls[0].text).toMatch(/INSERT INTO slack_app_secrets/);
       expect(calls[0].text).toMatch(/RETURNING id/);
       const params = calls[0].params!;
-      expect(params).toHaveLength(4);
+      expect(params).toHaveLength(5);
       expect(Buffer.isBuffer(params[0])).toBe(true); // ciphertext
       expect(Buffer.isBuffer(params[1])).toBe(true); // iv
       expect((params[1] as Buffer).length).toBe(12);
       expect(Buffer.isBuffer(params[2])).toBe(true); // auth tag
       expect((params[2] as Buffer).length).toBe(16);
       expect(params[3]).toBe('user@example.com');
+      expect(params[4]).toBeNull(); // label not provided
     });
   });
 
@@ -197,7 +198,7 @@ describe('registration/repo', () => {
         { id: 'b', created_at: now, last_used_at: now },
       ]);
       expect(calls.length).toBe(1);
-      expect(calls[0].text).toMatch(/SELECT id, created_at, last_used_at/);
+      expect(calls[0].text).toMatch(/SELECT id, label, created_at, last_used_at/);
       expect(calls[0].text).toMatch(/WHERE registered_by_email = \$1/);
       expect(calls[0].text).toMatch(/ORDER BY created_at DESC/);
       expect(calls[0].params).toEqual(['user@example.com']);

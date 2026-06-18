@@ -123,7 +123,12 @@ function escapeHtml(input: string): string {
 
 function renderPage(opts: {
   email: string;
-  registrations: Array<{ id: string; created_at: Date; last_used_at: Date | null }>;
+  registrations: Array<{
+    id: string;
+    label: string | null;
+    created_at: Date;
+    last_used_at: Date | null;
+  }>;
   flash?: { type: 'success' | 'error'; message: string };
 }): string {
   const { email, registrations, flash } = opts;
@@ -135,8 +140,10 @@ function renderPage(opts: {
           ? r.last_used_at.toISOString()
           : String(r.last_used_at)
         : 'never';
+      const label = r.label && r.label.trim() ? r.label : '—';
       return `
         <tr>
+          <td>${escapeHtml(label)}</td>
           <td><code>${escapeHtml(r.id)}</code></td>
           <td>${escapeHtml(created)}</td>
           <td>${escapeHtml(used)}</td>
@@ -202,9 +209,8 @@ function renderPage(opts: {
       border-radius: 4px;
     }
     label { display: block; margin: 1rem 0 0.4rem; font-weight: 600; }
-    textarea {
+    textarea, input[type="text"] {
       width: 100%;
-      min-height: 90px;
       background: #050505;
       color: #f5f5f5;
       border: 1px solid #2a2a2a;
@@ -214,6 +220,7 @@ function renderPage(opts: {
       font-size: 0.95rem;
       box-sizing: border-box;
     }
+    textarea { min-height: 90px; }
     button.primary {
       background: #4a154b;
       color: #fff;
@@ -283,6 +290,8 @@ function renderPage(opts: {
   </div>
 
   <form method="post" action="/register">
+    <label for="label">Label (e.g. workspace name or app name — helps you identify this registration later)</label>
+    <input type="text" id="label" name="label" autocomplete="off" spellcheck="false" maxlength="200" />
     <label for="secret">Slack signing secret</label>
     <textarea id="secret" name="secret" autocomplete="off" spellcheck="false" required></textarea>
     <button type="submit" class="primary">Register secret</button>
@@ -295,6 +304,7 @@ function renderPage(opts: {
       : `<table>
           <thead>
             <tr>
+              <th>Label</th>
               <th>ID</th>
               <th>Registered</th>
               <th>Last used</th>
@@ -372,11 +382,13 @@ export function buildRegistrationRouter(): Router {
       const user = req.user as SessionUser;
       const raw = typeof req.body?.secret === 'string' ? req.body.secret : '';
       const secret = raw.trim();
+      const rawLabel = typeof req.body?.label === 'string' ? req.body.label : '';
+      const label = rawLabel.trim() || undefined;
       if (!secret) {
         res.redirect('/register?error=empty');
         return;
       }
-      await insertSecret(secret, user.email);
+      await insertSecret(secret, user.email, label);
       res.redirect('/register?ok=1');
     } catch (err) {
       next(err);

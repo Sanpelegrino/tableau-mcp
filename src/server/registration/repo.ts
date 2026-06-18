@@ -16,6 +16,8 @@ CREATE TABLE IF NOT EXISTS slack_app_secrets (
   last_used_at timestamptz
 );
 
+ALTER TABLE slack_app_secrets ADD COLUMN IF NOT EXISTS label text;
+
 CREATE INDEX IF NOT EXISTS idx_slack_app_secrets_email
   ON slack_app_secrets(registered_by_email);
 `;
@@ -37,13 +39,15 @@ export async function countRegistered(): Promise<number> {
 export async function insertSecret(
   plaintextSecret: string,
   registeredByEmail: string,
+  label?: string,
 ): Promise<{ id: string }> {
   const { ciphertext, iv, authTag } = encrypt(plaintextSecret);
+  const cleanLabel = label?.trim() ? label.trim().slice(0, 200) : null;
   const result = await query(
-    `INSERT INTO slack_app_secrets (ciphertext, iv, auth_tag, registered_by_email)
-     VALUES ($1, $2, $3, $4)
+    `INSERT INTO slack_app_secrets (ciphertext, iv, auth_tag, registered_by_email, label)
+     VALUES ($1, $2, $3, $4, $5)
      RETURNING id`,
-    [ciphertext, iv, authTag, registeredByEmail],
+    [ciphertext, iv, authTag, registeredByEmail, cleanLabel],
   );
   const row = result.rows[0] as { id: string };
   return { id: row.id };
@@ -98,18 +102,24 @@ export async function findMatchingSecret(
 
 export async function listByEmail(
   email: string,
-): Promise<Array<{ id: string; created_at: Date; last_used_at: Date | null }>> {
+): Promise<Array<{ id: string; label: string | null; created_at: Date; last_used_at: Date | null }>> {
   const result = await query(
-    `SELECT id, created_at, last_used_at
+    `SELECT id, label, created_at, last_used_at
      FROM slack_app_secrets
      WHERE registered_by_email = $1
      ORDER BY created_at DESC`,
     [email],
   );
   return result.rows.map((raw) => {
-    const row = raw as { id: string; created_at: Date; last_used_at: Date | null };
+    const row = raw as {
+      id: string;
+      label: string | null;
+      created_at: Date;
+      last_used_at: Date | null;
+    };
     return {
       id: row.id,
+      label: row.label,
       created_at: row.created_at,
       last_used_at: row.last_used_at,
     };
