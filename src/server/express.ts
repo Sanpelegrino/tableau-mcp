@@ -10,6 +10,7 @@ import express, { Request, RequestHandler, Response } from 'express';
 import fs, { existsSync } from 'fs';
 import http from 'http';
 import https from 'https';
+import nodePath from 'path';
 
 import { Config } from '../config.js';
 import { log } from '../logging/logger.js';
@@ -24,8 +25,10 @@ import { EmbeddedOAuthProvider, TableauOAuthProvider } from './oauth/provider.js
 import { TableauAuthInfo } from './oauth/schemas.js';
 import { AuthenticatedRequest } from './oauth/types.js';
 import { passthroughAuthMiddleware, X_TABLEAU_AUTH_HEADER } from './passthroughAuthMiddleware.js';
+import { registrationGate } from './registration/registrationGate.js';
+import { ensureSchema } from './registration/repo.js';
+import { buildRegistrationRouter, buildSessionMiddleware } from './registration/router.js';
 import { X_TABLEAU_MCP_CONFIG_HEADER } from './requestUtils.js';
-import { sharedSecretMiddleware, X_MCP_AUTH_HEADER } from './sharedSecretMiddleware.js';
 
 const SESSION_ID_HEADER = 'mcp-session-id';
 
@@ -39,6 +42,20 @@ export async function startExpressServer({
   logLevel: LoggingLevel;
 }): Promise<{ url: string; app: express.Application; server: http.Server }> {
   const app = express();
+  app.set('trust proxy', 1);
+
+  // Initialize registration schema (idempotent CREATE TABLE).
+  // Failure here should not crash boot — log and continue so the rest of the
+  // server can start; the registration gate will surface DB errors at request
+  // time as 503s.
+  ensureSchema().catch((err) => {
+    log({
+      message: 'Failed to ensureSchema for registration table',
+      level: 'error',
+      logger: 'server',
+      data: err,
+    });
+  });
 
   app.use(express.json());
   app.use(express.urlencoded());
@@ -59,7 +76,6 @@ export async function startExpressServer({
         'MCP-Protocol-Version',
         X_TABLEAU_AUTH_HEADER,
         X_TABLEAU_MCP_CONFIG_HEADER,
-        X_MCP_AUTH_HEADER,
       ],
       exposedHeaders: [SESSION_ID_HEADER, 'x-session-id'],
     }),
@@ -69,7 +85,24 @@ export async function startExpressServer({
     res.status(200).json({ status: 'ok' });
   });
 
-  const middleware: Array<RequestHandler> = [sharedSecretMiddleware(), handlePingRequest];
+  // Registration UI: Google-OAuth-gated /register page that lets approved
+  // users (currently @salesforce.com) register Slack signing secrets that
+  // populate the per-app registry.
+  app.use(buildSessionMiddleware());
+  app.use(
+    '/register',
+    express.static(nodePath.join(__dirname, 'static'), {
+      // The static dir holds the screenshot referenced by the form.
+      // It contains no secrets; safe to serve unauthenticated.
+      fallthrough: true,
+    }),
+  );
+  app.use(buildRegistrationRouter());
+  app.get('/', (_req, res) => {
+    res.redirect('/register');
+  });
+
+  const middleware: Array<RequestHandler> = [registrationGate(), handlePingRequest];
   if (config.enablePassthroughAuth) {
     middleware.push(passthroughAuthMiddleware());
   }

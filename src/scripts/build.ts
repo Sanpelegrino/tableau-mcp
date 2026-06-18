@@ -1,7 +1,7 @@
 /* eslint-disable no-console */
 
 import { build, BuildOptions } from 'esbuild';
-import { chmod, mkdir, rm } from 'fs/promises';
+import { chmod, cp, mkdir, rm } from 'fs/promises';
 
 import { GlobalIdentifierName, globalIdentifiers } from './globalIdentifiers.js';
 import { isVariant, variants } from './variants.js';
@@ -81,4 +81,8 @@ const globalValues: Record<GlobalIdentifierName, string> = {
   }
 
   await chmod(buildOptions.outfile, '755');
+
+  // Copy static assets needed at runtime (registration page screenshot, etc.)
+  // into build/static so the bundled server can serve them via express.static.
+  await cp('./src/server/registration/static', './build/static', { recursive: true });
 })();
