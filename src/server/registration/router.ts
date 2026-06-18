@@ -141,7 +141,8 @@ function renderPage(opts: {
           <td>${escapeHtml(created)}</td>
           <td>${escapeHtml(used)}</td>
           <td>
-            <form method="post" action="/register/delete" style="margin:0">
+            <form method="post" action="/register/delete" style="margin:0"
+              onsubmit="return confirm('Delete this registration? Once deleted, the corresponding Slack app will be bounced with a 401 until it is re-registered.');">
               <input type="hidden" name="id" value="${escapeHtml(r.id)}" />
               <button type="submit" class="danger">Delete</button>
             </form>
