@@ -68,7 +68,7 @@ describe('registrationGate', () => {
     expect(countFn).not.toHaveBeenCalled();
   });
 
-  it('returns 200 JSON-RPC error with self-discovered registration URL when registry is empty', async () => {
+  it('returns 200 tool-result error for tools/call so MCP clients surface the message', async () => {
     const countFn = vi.fn().mockResolvedValue(0);
     const handler = registrationGate({ countFn });
 
@@ -82,13 +82,34 @@ describe('registrationGate', () => {
     const payload = json.mock.calls[0][0];
     expect(payload.jsonrpc).toBe('2.0');
     expect(payload.id).toBe(1);
+    expect(payload.result.isError).toBe(true);
+    expect(payload.result.content[0].type).toBe('text');
+    expect(payload.result.content[0].text).toContain('not registered');
+    expect(payload.result.content[0].text).toContain('https://mcp.example.com/register');
+    expect(payload.error).toBeUndefined();
+  });
+
+  it('returns JSON-RPC error envelope for non-tools/call methods', async () => {
+    const countFn = vi.fn().mockResolvedValue(0);
+    const handler = registrationGate({ countFn });
+
+    const next = vi.fn() as NextFunction;
+    const { res, status, json } = makeRes();
+
+    const req = {
+      method: 'POST',
+      path: '/tableau-mcp',
+      headers: { host: 'mcp.example.com', 'x-forwarded-proto': 'https' },
+      body: { jsonrpc: '2.0', method: 'initialize', id: 7 },
+    } as unknown as Request;
+
+    await handler(req, res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(status).toHaveBeenCalledWith(200);
+    const payload = json.mock.calls[0][0];
     expect(payload.error.code).toBe(-32001);
-    expect(payload.error.message).toContain('not registered');
-    expect(payload.error.message).toContain('https://mcp.example.com/register');
-    expect(payload.error.data).toEqual({
-      reason: 'app_not_registered',
-      register_url: 'https://mcp.example.com/register',
-    });
+    expect(payload.error.data.register_url).toBe('https://mcp.example.com/register');
   });
 
   it('calls next() when registry is non-empty', async () => {
